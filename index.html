@@ -575,6 +575,7 @@ document.getElementById('saveBtn').addEventListener('click',()=>{
 /* ======================= 启动 ======================= */
 document.addEventListener('gesturestart',e=>e.preventDefault());
 document.addEventListener('dblclick',e=>e.preventDefault());
+if('serviceWorker' in navigator){ window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{})); }
 (function init(){
   fit();
   const bg=makeLayer('背景'); bg.ctx.fillStyle='#ffffff'; bg.ctx.fillRect(0,0,DOC,DOC);
