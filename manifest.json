@@ -1,0 +1,16 @@
+{
+  "name": "小画家 Pro",
+  "short_name": "小画家",
+  "description": "给小朋友的画画与涂色 App：专业画笔、图层、照片变描图涂色稿。",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#e9ecf3",
+  "theme_color": "#5468ff",
+  "lang": "zh-CN",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
