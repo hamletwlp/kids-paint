@@ -513,56 +513,62 @@ tplMask.addEventListener('click',e=>{ if(e.target===tplMask) closeTpl(); });
 const photoMask=document.getElementById('photoMask'), photoInput=document.getElementById('photoInput');
 const photoPreview=document.getElementById('photoPreview'), pctx=photoPreview.getContext('2d',{willReadFrequently:true});
 let srcImg=null, edgeCanvas=newCanvas(); let ectx=edgeCanvas.getContext('2d',{willReadFrequently:true});
+let fitCanvas=newCanvas(); let fctx=fitCanvas.getContext('2d',{willReadFrequently:true});  // 裁好的原彩图（做成品参考用）
 document.getElementById('photoBtn').addEventListener('click',()=>photoInput.click());
 document.getElementById('photoReChoose').addEventListener('click',()=>photoInput.click());
 photoInput.addEventListener('change',e=>{ const f=e.target.files[0]; if(!f) return; const url=URL.createObjectURL(f);
   const im=new Image(); im.onload=()=>{ srcImg=im; URL.revokeObjectURL(url); buildEdge(); photoMask.classList.add('show'); }; im.src=url; });
 document.getElementById('edgeThresh').addEventListener('input',buildEdge);
+document.getElementById('keepPhoto').addEventListener('change',buildEdge);
 document.querySelectorAll('input[name="pmode"]').forEach(r=>r.addEventListener('change',buildEdge));
 
 function buildEdge(){
   if(!srcImg) return;
-  // 把图按 contain 画到 DOC 大小（白底）
-  ectx.fillStyle='#fff'; ectx.fillRect(0,0,DOC,DOC);
+  // 原图按 contain 画到 fitCanvas（白底）——既用于边缘检测，也用作"彩色成品参考"
+  fctx.fillStyle='#fff'; fctx.fillRect(0,0,DOC,DOC);
   const s=Math.min(DOC/srcImg.width, DOC/srcImg.height); const w=srcImg.width*s,h=srcImg.height*s;
-  ectx.drawImage(srcImg,(DOC-w)/2,(DOC-h)/2,w,h);
-  const img=ectx.getImageData(0,0,DOC,DOC); const d=img.data; const n=DOC*DOC;
+  fctx.drawImage(srcImg,(DOC-w)/2,(DOC-h)/2,w,h);
+  const d=fctx.getImageData(0,0,DOC,DOC).data; const n=DOC*DOC;
   const gray=new Float32Array(n);
   for(let i=0;i<n;i++){ gray[i]=(d[i*4]*299+d[i*4+1]*587+d[i*4+2]*114)/1000; }
   const out=ectx.createImageData(DOC,DOC); const o=out.data;
   const th=+document.getElementById('edgeThresh').value;
   const mode=document.querySelector('input[name="pmode"]:checked').value;
-  const keep=document.getElementById('keepPhoto').checked;
+  const lineScale = mode==='trace' ? 0.5 : 1.0;            // 描图线更淡
+  // 线稿层：透明底，只保留线条（这样能压在上色层之上而不挡色）
   for(let y=1;y<DOC-1;y++){ for(let x=1;x<DOC-1;x++){
     const i=y*DOC+x;
     const gx=-gray[i-1-DOC]+gray[i+1-DOC]-2*gray[i-1]+2*gray[i+1]-gray[i-1+DOC]+gray[i+1+DOC];
     const gy=-gray[i-1-DOC]-2*gray[i-DOC]-gray[i+1-DOC]+gray[i-1+DOC]+2*gray[i+DOC]+gray[i+1+DOC];
-    const mag=Math.hypot(gx,gy);
+    const edge = Math.hypot(gx,gy) > th ? Math.min(255,(Math.hypot(gx,gy)-th)*1.6) : 0;
     const oi=i*4;
-    let edge = mag>th ? Math.min(255, (mag-th)*1.6) : 0;   // 0..255 边缘强度
-    let v = 255-edge;                                       // 白底黑线
-    if(mode==='trace'){ v = 255 - edge*0.42; }              // 描图：线更淡
-    if(keep){ // 叠一层很淡的原图
-      const base=(d[oi]*0.15+255*0.85);
-      v = Math.min(v, (d[oi]+d[oi+1]+d[oi+2])/3*0.25+ v*0.75);
-    }
-    o[oi]=o[oi+1]=o[oi+2]=v; o[oi+3]= edge>0? 255 : (keep?255:0);
-    if(keep && edge===0){ o[oi]=d[oi];o[oi+1]=d[oi+1];o[oi+2]=d[oi+2]; o[oi+3]=40; }
+    if(edge>0){ const v=255-edge*lineScale; o[oi]=o[oi+1]=o[oi+2]=v; o[oi+3]=255; }
+    else { o[oi+3]=0; }
   }}
-  ectx.putImageData(out,0,0);
-  // 预览（缩略）
+  ectx.clearRect(0,0,DOC,DOC); ectx.putImageData(out,0,0);
+  // 预览：白底 +（勾选则叠淡彩成品参考）+ 线稿
   photoPreview.width=360; photoPreview.height=360; pctx.clearRect(0,0,360,360);
-  pctx.fillStyle='#fff'; pctx.fillRect(0,0,360,360); pctx.drawImage(edgeCanvas,0,0,360,360);
+  pctx.fillStyle='#fff'; pctx.fillRect(0,0,360,360);
+  if(document.getElementById('keepPhoto').checked){ pctx.globalAlpha=0.32; pctx.drawImage(fitCanvas,0,0,360,360); pctx.globalAlpha=1; }
+  pctx.drawImage(edgeCanvas,0,0,360,360);
 }
 document.getElementById('photoApply').addEventListener('click',()=>{
   const mode=document.querySelector('input[name="pmode"]:checked').value;
-  const L=makeLayer(mode==='color'?'照片线稿':'照片描图'); L.ctx.drawImage(edgeCanvas,0,0);
-  let colorLayer=null;
-  if(mode==='color'){ colorLayer=makeLayer('上色'); const li=layers.indexOf(L),ci=layers.indexOf(colorLayer); layers.splice(ci,1); layers.splice(li,0,colorLayer); reorderDom(); setActive(colorLayer.id); L.locked=true; }
-  else setActive(L.id);
+  const keep=document.getElementById('keepPhoto').checked;
+  // 按"从下往上"创建：makeLayer 总是叠在最上，所以先建底层
+  const created=[]; let active=null;
+  if(keep){ const ref=makeLayer('彩色参考'); ref.ctx.drawImage(fitCanvas,0,0); ref.opacity=0.3; ref.locked=true; created.push(ref); }
+  if(mode==='color'){
+    const color=makeLayer('上色'); created.push(color); active=color;
+    const line=makeLayer('照片线稿'); line.ctx.drawImage(edgeCanvas,0,0); line.locked=true; created.push(line);
+  } else {
+    const guide=makeLayer('描图引导'); guide.ctx.drawImage(edgeCanvas,0,0); guide.opacity=0.9; guide.locked=true; created.push(guide);
+    const draw=makeLayer('描画'); created.push(draw); active=draw;
+  }
+  setActive(active.id);
   restack(); renderLayerPanel(); photoMask.classList.remove('show');
-  pushUndo(()=>{ [L,colorLayer].filter(Boolean).forEach(x=>{x.canvas.remove(); layers=layers.filter(y=>y!==x);}); if(layers.length)activeId=layers[layers.length-1].id; restack(); renderLayerPanel(); });
-  toast('已放到画布');
+  pushUndo(()=>{ created.forEach(x=>{x.canvas.remove(); layers=layers.filter(y=>y!==x);}); if(layers.length)activeId=layers[layers.length-1].id; restack(); renderLayerPanel(); });
+  toast(keep ? '已生成：线稿 + 淡彩成品参考 + 上色层' : (mode==='color'?'已生成：线稿 + 上色层':'已生成：引导线 + 描画层'));
 });
 document.getElementById('photoClose').addEventListener('click',()=>photoMask.classList.remove('show'));
 
